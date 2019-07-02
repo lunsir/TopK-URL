@@ -10,7 +10,6 @@ import (
 )
 
 var memSize int64 = 1 * 1024 * 1024 * 1024
-var urlAvgSize = 64
 
 //URLCnt is the type we manage in a priority queue.
 type URLCnt struct {
@@ -69,26 +68,30 @@ func readFileProducer(filePath string, bufChan chan string, errChan chan error) 
 		bufChan <- fileScanner.Text()
 		//count++
 	}
+	if err := fileScanner.Err(); err != nil {
+		errChan <- err
+	}
 	//fmt.Println("read line:", count)
 }
 
 func writeFileConsumer(filePath string, bufChan chan string, shardCnt uint32, errChan chan error) {
 	openFileMap := make(map[uint32]*bufio.Writer)
 	//count := 0
-
 	for line := range bufChan {
 		fileNum := utils.StringHash(line) % shardCnt
 		w, ok := openFileMap[fileNum]
 		if !ok {
 			f, err := os.OpenFile(filePath+"-"+fmt.Sprint(fileNum), os.O_CREATE|os.O_WRONLY, 0666)
-			defer f.Close()
 			//fmt.Println("create file:", filePath+"-"+fmt.Sprint(fileNum))
 			if err != nil {
 				errChan <- err
 				return
 			}
-			w = bufio.NewWriterSize(bufio.NewWriter(f), 256*1024)
-			defer w.Flush()
+			w = bufio.NewWriterSize(f, 256*1024)
+			defer func(f *os.File, w *bufio.Writer) {
+				w.Flush()
+				f.Close()
+			}(f, w)
 			openFileMap[fileNum] = w
 		}
 		fmt.Fprintln(w, line)
@@ -113,7 +116,7 @@ func shardingFileByHash(filePath string) (uint32, chan error) {
 		return shardCnt, errChan
 	}
 
-	var bufChan = make(chan string, memSize/int64(urlAvgSize))
+	var bufChan = make(chan string, 256*1024)
 	//Producer
 	go readFileProducer(filePath, bufChan, errChan)
 	//Consumer
@@ -184,7 +187,7 @@ func hashAggFileLines(filePath string, canSplitFile bool, limit int) (PriorityQu
 	}
 
 	if !canSplitFile || shardCnt == 1 {
-		var bufChan = make(chan string, memSize/int64(urlAvgSize))
+		var bufChan = make(chan string, 256*1024)
 		var errChan = make(chan error, 2)
 
 		go readFileProducer(filePath, bufChan, errChan)
