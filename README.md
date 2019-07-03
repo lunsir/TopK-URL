@@ -24,3 +24,7 @@ After the build, you can run the executable file main, then it will print the mo
 $ ./main
 ```
 ## Performance
+You can test the performance of this program with the following command. To run this test you should have at least 200G space left on your disk.
+```
+$./performance_test.sh
+```
